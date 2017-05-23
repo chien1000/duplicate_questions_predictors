@@ -2,6 +2,25 @@
 # -*- coding:utf-8 -*-
 import numpy as np
 import nltk
+from sklearn.feature_extraction.text import TfidfVectorizer
+from gensim.models import Word2Vec, KeyedVectors
+import pickle
+VECTORIZER = None
+WORD2VEC = None
+
+def initialize(data, token_data):
+    global VECTORIZER
+    global WORD2VEC
+    if data:
+        VECTORIZER = TfidfVectorizer(stop_words='english')
+        VECTORIZER.fit(data)
+        pickle.dump(VECTORIZER.vocabulary_, open("vocabulary.pkl","wb"))
+
+        WORD2VEC = Word2Vec(token_data, size=300, window=5, min_count=1, workers=4)
+        WORD2VEC.save("word2vec_model.bin")
+    else :
+        VECTORIZER = TfidfVectorizer(decode_error="replace", vocabulary=pickle.load(open("vocabulary.pkl", "rb")))
+        WORD2VEC = KeyedVectors.load("word2vec_model.bin")
 
 def jaccard(s1,s2):
     u = s1.union(s2)
@@ -40,25 +59,41 @@ class Qpair(object):
                 jscore = 1
             values.append(jscore)
         return values
+    
+    def get_tfidf_diff(self):
+        global VECTORIZER
+        m = VECTORIZER.transform([self.q1,self.q2])
+        diff = np.absolute(m[0,] - m[1,])
+        return diff
+
+    def get_wordvector_diff(self):
+        pass
 
     def get_features(self):
-        words_count = self.count_same_words()
-        fv = [words_count]
+        fv = []
+        # words_count = self.count_same_words()
+        # fv.append(words_count)
         
-        pos_info = self.get_pos_info()
-        fv.extend(pos_info)
+        # pos_info = self.get_pos_info()
+        # fv.extend(pos_info)
 
-        fv = np.array(fv)
+
+        # fv = np.array(fv)
+        fv = self.get_tfidf_diff()
         return fv
     
     @staticmethod
     def get_feature_names():
-        return ["word_jaccard", "N_jaccard", "V_jaccard", "J_jaccard"]
+        # return ["word_jaccard", "N_jaccard", "V_jaccard", "J_jaccard"]
+        global VECTORIZER        
+        name = VECTORIZER.get_feature_names()
+        return name
 
 def main():
     q1 = 'chien is sleepy and hungry'
     q2 = 'hi my name is chien'
     qp = Qpair(q1,q2,1)
+    initialize([q1,q2])
     print(qp.q1_tokenized)
     print(qp.q2_tokenized)
     print("same words count {}, non normalized {}".format(qp.count_same_words(),qp.count_same_words(False)))

@@ -4,7 +4,9 @@ import sys
 import csv
 from time import time
 from preprocess import Qpair
+import preprocess
 import numpy as np 
+from tqdm import tqdm
 
 from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier
@@ -22,15 +24,33 @@ def load_data(fname):
         else:
             qp = Qpair(row['question1'],row['question2'],-1)        
         data.append(qp)
+    print("finish loading data")
     return(data)
 
-def make_features(fname):
+def make_features(fname, train=True):
     data = load_data(fname)
+    if train:
+        all_text = []
+        all_tokens = []
+        for qp in data:
+            all_text.append(qp.q1)
+            all_text.append(qp.q2)
+            t1 = [tup[0] for tup in qp.q1_tokenized]
+            t2 = [tup[0] for tup in qp.q2_tokenized]
+            all_tokens.append(t1)
+            all_tokens.append(t2)
+
+        preprocess.initialize(all_text, all_tokens)
+    else:
+        preprocess.initialize(None,None)
+
     with open("features_" + fname,'w') as foutput:
         foutput.write(",".join(Qpair.get_feature_names()))
-        for i,qp in enumerate(data):
+        for i,qp in enumerate(tqdm(data, desc = 'make features and write to the file')):
             foutput.write("\n")            
             values = qp.get_features()
+            if str(type(values)) == "<class 'scipy.sparse.csr.csr_matrix'>":
+                values = values.todense().flat
             values = ["{:.2f}".format(v) for v in values]
             foutput.write(",".join(values))
 
@@ -45,8 +65,8 @@ def load_features(fname):
     with open("features_" + fname, 'r', encoding='utf-8') as ff:
         lines = ff.readlines()
         head = lines[0]
-        print(head)
-        for line in lines[1:]:
+        # print(head)
+        for line in tqdm(lines[1:], desc = 'loading features'):
             values = line.strip("\n").split(",")
             fm.append(values)
     fm = np.array(fm)
@@ -86,7 +106,7 @@ def train_evaluate(clf, X_train, X_test, y_train, y_test):
     clf_descr = str(clf).split('(')[0]
     return clf_descr, score
 
-def train(save_fname='model.pkl'):
+def train(fname='train.csv', save_fname='model.pkl'):
     # data = load_data("features_train.csv")
     # N= len(data)
     # M= len(data[0].get_features())
@@ -95,7 +115,6 @@ def train(save_fname='model.pkl'):
     # for i,qp in enumerate(data):
     #     X[i,] = qp.get_features()
     #     y[i] = qp.is_duplicate
-    fname = "train.csv"
     X = load_features(fname)    
     y = load_labels(fname)
 
@@ -129,7 +148,7 @@ def predict_test(fname="test.csv", clf_file='model.pkl'):
             ofile.write("{},{}\n".format(i,y))
             
         
-def evaluate():
+def evaluate(fname):
     # data = load_data("train.csv")
     # N= len(data)
     # M= len(data[0].get_features())
@@ -139,7 +158,6 @@ def evaluate():
     #     X[i,] = qp.get_features()
     #     y[i] = qp.is_duplicate
 
-    fname = "train.csv"
     X = load_features(fname)    
     y = load_labels(fname)
     skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=516)
@@ -151,23 +169,43 @@ def evaluate():
         clf = RandomForestClassifier(n_estimators=100)
         # clf = LogisticRegression()
         train_evaluate(clf, X_train, X_test, y_train, y_test)
-    
+        
+        clf = LinearSVC()
+        train_evaluate(clf, X_train, X_test, y_train, y_test)
+        
+        clf = LogisticRegression()
+        train_evaluate(clf, X_train, X_test, y_train, y_test)
 
 if __name__ == '__main__':
     if len(sys.argv)>1:
         if sys.argv[1] == 'train':
-            train()
+            if len(sys.argv) >2:
+                fname = sys.argv[2]
+                train(fname)
+            else:
+                train()
+                
         elif sys.argv[1] == 'predict':
             predict_test('test.csv')
+
         elif sys.argv[1] == 'evaluate':
-            evaluate()            
+            if len(sys.argv) >2:
+                fname = sys.argv[2]
+                evaluate(fname)
+            else:
+                evaluate()           
+
         elif sys.argv[1] == 'make_features':
             try:
                 if sys.argv[2] == 'train':
                     make_features("train.csv")
                     make_labels("train.csv")
                 elif sys.argv[2] == 'test':
-                    make_features("test.csv")
+                    make_features("test.csv", False)
+                else:
+                    fname = sys.argv[2]
+                    make_features(fname)
+                    make_labels(fname)
                     
             except Exception as e:
-                pass
+                print(str(e))
